@@ -1,0 +1,252 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id                 String       @id @default(uuid())
+  fullName           String       @map("full_name")
+  email              String       @unique
+  passwordHash       String       @map("password_hash")
+  role               String       @default("user") // guest, user, admin
+  preferredLanguage  String?      @map("preferred_language")
+  status             String       @default("active") // active, inactive, suspended
+  emailVerifiedAt    DateTime?    @map("email_verified_at")
+  lastLoginAt        DateTime?    @map("last_login_at")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+  deletedAt          DateTime?    @map("deleted_at")
+
+  projects           Project[]
+  conversations      Conversation[]
+  userSessions       UserSession[]
+  passwordResets     PasswordResetToken[]
+  emailVerifications EmailVerificationToken[]
+  kbArticlesCreated  KnowledgeBaseArticle[]  @relation("KBAuthor")
+  kbArticlesUpdated  KnowledgeBaseArticle[]  @relation("KBEditor")
+  generatedDocuments GeneratedDocument[]
+  analyticsEvents    AnalyticsEvent[]
+
+  @@map("users")
+}
+
+model Project {
+  id                               String              @id @default(uuid())
+  userId                           String              @map("user_id")
+  projectName                      String              @map("project_name")
+  projectType                      String              @map("project_type")
+  category                         String?
+  description                      String
+  status                           String              @default("draft")
+  requirementCompletionPercentage  Int                 @default(0) @map("requirement_completion_percentage")
+  currentPhase                     String?             @map("current_phase")
+  createdAt                        DateTime            @default(now()) @map("created_at")
+  updatedAt                        DateTime            @updatedAt @map("updated_at")
+  deletedAt                        DateTime?           @map("deleted_at")
+
+  user                             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversations                    Conversation[]
+  requirements                     Requirement[]
+  requirementQuestions             RequirementQuestion[]
+  recommendations                  Recommendation[]
+  generatedDocuments               GeneratedDocument[]
+  aiInteractions                   AIInteraction[]
+  analyticsEvents                  AnalyticsEvent[]
+
+  @@index([userId, createdAt])
+  @@map("projects")
+}
+
+model Conversation {
+  id               String          @id @default(uuid())
+  userId           String          @map("user_id")
+  projectId        String          @map("project_id")
+  sessionId        String          @map("session_id")
+  senderType       String          @map("sender_type") // user, ai, system
+  message          String
+  detectedLanguage String?         @map("detected_language")
+  mentorMode       String?         @map("mentor_mode")
+  metadata         String?         // In SQLite, store JSON as a string
+  createdAt        DateTime        @default(now()) @map("created_at")
+
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project          Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requirements     Requirement[]   @relation("SourceMessage")
+  aiInteractions   AIInteraction[]
+
+  @@index([projectId, createdAt])
+  @@map("conversations")
+}
+
+model Requirement {
+  id               String        @id @default(uuid())
+  projectId        String        @map("project_id")
+  category         String        // platform, users, auth, payment, etc.
+  requirementKey   String        @map("requirement_key")
+  requirementValue String?       @map("requirement_value")
+  status           String        @default("pending") // pending, answered, skipped, validated
+  isMandatory      Boolean       @default(true) @map("is_mandatory")
+  sourceMessageId  String?       @map("source_message_id")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  project          Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceMessage    Conversation? @relation("SourceMessage", fields: [sourceMessageId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, category])
+  @@map("requirements")
+}
+
+model RequirementQuestion {
+  id             String    @id @default(uuid())
+  projectId      String    @map("project_id")
+  requirementKey String    @map("requirement_key")
+  questionText   String    @map("question_text")
+  answerType     String    @map("answer_type") // text, single_choice, multi_choice, yes_no
+  options        String?   // In SQLite, store JSON as a string
+  status         String    @default("pending") // pending, answered, skipped
+  displayOrder   Int       @map("display_order")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  answeredAt     DateTime? @map("answered_at")
+
+  project        Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("requirement_questions")
+}
+
+model Recommendation {
+  id                 String    @id @default(uuid())
+  projectId          String    @map("project_id")
+  recommendationType String    @map("recommendation_type") // features, technology, roadmap, testing
+  recommendationText String    @map("recommendation_text")
+  confidenceScore    Decimal?  @map("confidence_score")
+  rationale          String?
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  project            Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("recommendations")
+}
+
+model GeneratedDocument {
+  id            String    @id @default(uuid())
+  projectId     String    @map("project_id")
+  documentType  String    @map("document_type") // prd, user_stories, use_cases, roadmap, srs
+  title         String
+  content       String
+  versionNumber Int       @map("version_number") @default(1)
+  exportFormat  String?   @map("export_format")
+  generatedBy   String    @map("generated_by")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user          User      @relation(fields: [generatedBy], references: [id], onDelete: Cascade)
+
+  @@index([projectId, documentType])
+  @@map("generated_documents")
+}
+
+model UserSession {
+  id               String    @id @default(uuid())
+  userId           String    @map("user_id")
+  refreshTokenHash String    @map("refresh_token_hash")
+  ipAddress        String?   @map("ip_address")
+  userAgent        String?   @map("user_agent")
+  expiresAt        DateTime  @map("expires_at")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("user_sessions")
+}
+
+model AIInteraction {
+  id             String        @id @default(uuid())
+  projectId      String?       @map("project_id")
+  conversationId String?       @map("conversation_id")
+  provider       String
+  modelName      String        @map("model_name")
+  promptType     String        @map("prompt_type")
+  inputTokens    Int?          @map("input_tokens")
+  outputTokens   Int?          @map("output_tokens")
+  latencyMs      Int?          @map("latency_ms")
+  status         String        // success, failed, fallback_used
+  errorMessage   String?       @map("error_message")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  project        Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@map("ai_interactions")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("password_reset_tokens")
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("email_verification_tokens")
+}
+
+model KnowledgeBaseArticle {
+  id         String    @id @default(uuid())
+  title      String
+  category   String
+  tags       String?   // In SQLite, store JSON as a string
+  content    String
+  status     String    @default("draft") // draft, published, archived
+  createdBy  String    @map("created_by")
+  updatedBy  String?   @map("updated_by")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  deletedAt  DateTime? @map("deleted_at")
+
+  author     User      @relation("KBAuthor", fields: [createdBy], references: [id], onDelete: Cascade)
+  editor     User?     @relation("KBEditor", fields: [updatedBy], references: [id], onDelete: SetNull)
+
+  @@index([category, status])
+  @@map("knowledge_base_articles")
+}
+
+model AnalyticsEvent {
+  id              String   @id @default(uuid())
+  userId          String?  @map("user_id")
+  projectId       String?  @map("project_id")
+  eventName       String   @map("event_name")
+  eventProperties String?  // In SQLite, store JSON as a string
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  project         Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([eventName, createdAt])
+  @@map("analytics_events")
+}

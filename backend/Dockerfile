@@ -35,10 +35,15 @@ COPY --from=builder /usr/src/app/dist ./dist
 COPY --from=builder /usr/src/app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /usr/src/app/node_modules/@prisma ./node_modules/@prisma
 
+# Create persistent data directory for SQLite
+RUN mkdir -p /data
+
 EXPOSE 5000
 
 ENV PORT=5000
 ENV NODE_ENV=production
+ENV DATABASE_URL=file:/data/prod.db
 
-# Command to migrate DB and start application
-CMD npx prisma db push && npm start
+# Run db push to create/update tables, then start
+CMD npx prisma db push --skip-generate && npm start
+
